@@ -1,0 +1,9 @@
+<library path="lib/libflir_nodelet">
+  <class name="flir/FlirNodelet"
+         type="flir::FlirNodelet"
+         base_class_type="nodelet::Nodelet">
+    <description>
+      flir camera nodelet
+    </description>
+  </class>
+</library>

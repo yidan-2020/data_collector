@@ -1,0 +1,9 @@
+<library path="lib/libthermal_nodelet">
+  <class name="thermal/IRNodelet"
+         type="thermal::IRNodelet"
+         base_class_type="nodelet::Nodelet">
+    <description>
+      flir camera nodelet
+    </description>
+  </class>
+</library>
