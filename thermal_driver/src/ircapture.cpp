@@ -1,23 +1,24 @@
 #include "ircapture.h"
 
-Frame *const frame0 = new Frame;
-Frame *const frame1 = new Frame;
-
-int FrameCallback0(void *lData, void *lParam) {
+int FrameCallback(void *lData, void *lParam) {
   Frame *tmp = (Frame *)lData;
   if (tmp == NULL) {
     return -1;
   }
-  memcpy(frame0, tmp, sizeof(Frame));
+  IRCapture *ir = (IRCapture *)lParam;
+  ir->frame_left = *tmp;
+  IRSDK_FrameConvertDDE(tmp, ir->pGray_left, 50, 50, NULL, NULL, 0, 50, 5);
   return 0;
 }
 
-int FrameCallback1(void *lData, void *lParam) {
+int FrameCallback_r(void *lData, void *lParam) {
   Frame *tmp = (Frame *)lData;
   if (tmp == NULL) {
     return -1;
   }
-  memcpy(frame1, tmp, sizeof(Frame));
+  IRCapture *ir = (IRCapture *)lParam;
+  ir->frame_right = *tmp;
+  IRSDK_FrameConvertDDE(tmp, ir->pGray_right, 50, 50, NULL, NULL, 0, 50, 5);
   return 0;
 }
 
@@ -26,25 +27,16 @@ IRCapture::IRCapture(ros::NodeHandle node, ros::NodeHandle private_nh)
   ROS_ASSERT_MSG(nh_pvt_.getParam("left_ip", left_ip), "left ip is required");
   ROS_ASSERT_MSG(nh_pvt_.getParam("right_ip", right_ip),
                  "right ip is required");
-  ROS_ASSERT_MSG(nh_pvt_.getParam("min_tempreture", min_t),
-                 "min tempreture is required");
-  ROS_ASSERT_MSG(nh_pvt_.getParam("max_tempreture", max_t),
-                 "max tempreture is required");
+  nh_pvt_.getParam("publish_raw", publish_raw);
   IRSDK_Init();
   memset(ip_info, 0, sizeof(ip_info)); // clear
-
-  callback_frame0 = &FrameCallback0;
-  callback_frame1 = &FrameCallback0;
-
-  for (int i = 0; i < 2; i++) {
-    frames_.push_back(cv::Mat::zeros(512, 640, CV_8UC1));
-  }
-  camera_image_pubs_left = it_.advertise("thermal/left/image_raw", 1);
-  camera_image_pubs_right = it_.advertise("thermal/right/image_raw", 1);
+  IRSDK_InqureIP(ip_info, 500);
+  created_ = false;
 }
 
 IRCapture::~IRCapture() {
-
+  IRSDK_Destroy(0);
+  IRSDK_Destroy(1);
   IRSDK_Quit();
   ros::shutdown();
 }
@@ -61,7 +53,6 @@ void IRCapture::Monitor(const ros::TimerEvent &event) {
     }
   }
   IRSDK_InqureIP(ip_info, 500);
-  ROS_ERROR("monitoring");
 }
 
 void IRCapture::Run() {
@@ -69,27 +60,41 @@ void IRCapture::Run() {
   try {
     while (ros::ok()) {
       if (!created_) {
-        if (ip_info[0].totalOnline < 2) {
-          continue;
+        {
+          if (ip_info[0].totalOnline < 2) {
+            ros_rate.sleep();
+            continue;
+          }
+          std::cout << "0: " << ip_info[0].IPAddr << std::endl;
+          std::cout << "1: " << ip_info[1].IPAddr << std::endl;
+          T_IPADDR left_ipinfo = ip_info[0];
+          T_IPADDR right_ipinfo = ip_info[1];
+          if (std::string(left_ipinfo.IPAddr).compare(left_ip)) {
+            ROS_ERROR("switching");
+            left_ipinfo = ip_info[1];
+            right_ipinfo = ip_info[0];
+          }
+          if (std::string(left_ipinfo.IPAddr).compare(left_ip) ||
+              std::string(right_ipinfo.IPAddr).compare(right_ip)) {
+            ROS_ERROR("unmatched");
+            ros_rate.sleep();
+            continue;
+          }
+          ROS_INFO("creating0===");
+          IRSDK_Create(0, left_ipinfo, &FrameCallback, NULL, NULL,
+                       (void *)this);
+          IRSDK_Connect(0);
+          ROS_INFO("creating1===");
+          IRSDK_Create(1, right_ipinfo, &FrameCallback_r, NULL, NULL,
+                       (void *)this);
+          IRSDK_Connect(1);
+          created_ = true;
+          ROS_INFO("created success!");
         }
-        std::cout << "0: " << ip_info[0].IPAddr << std::endl;
-        std::cout << "1: " << ip_info[1].IPAddr << std::endl;
-        IRSDK_Create(0, ip_info[0], callback_frame0, NULL, NULL,
-                     (void *)(this));
-        IRSDK_Create(1, ip_info[1], callback_frame1, NULL, NULL,
-                     (void *)(this));
-        IRSDK_Connect(0);
-        IRSDK_Connect(1);
-        created_ = true;
+
       } else {
-        if (float(frame0->u8TempDiv) > 0 && float(frame1->u8TempDiv) > 0) {
-          GetTempretureImage(frame0->buffer, float(frame0->u8TempDiv),
-                             frames_[0]);
-          GetTempretureImage(frame1->buffer, float(frame1->u8TempDiv),
-                             frames_[1]);
-        }
+        GetTempretureImage();
       }
-      ExporttoROS();
       ros_rate.sleep();
     }
   } catch (const std::exception &e) {
@@ -97,37 +102,59 @@ void IRCapture::Run() {
   } catch (...) {
     ROS_FATAL_STREAM("Some unknown exception occured.");
   }
+  IRSDK_Destroy(0);
+  IRSDK_Destroy(1);
 }
 
-void IRCapture::GetTempretureImage(unsigned short *buffer, float x,
-                                   cv::Mat &img) {
-  if (x < 1) {
-    ROS_ERROR("div x is too small, use 100 instead");
-    x = 100;
+void IRCapture::GetTempretureImage() {
+  cv::Mat img_left = cv::Mat::zeros(480, 640, CV_8UC1);
+  cv::Mat img_right = cv::Mat::zeros(480, 640, CV_8UC1);
+
+  if (pGray_left == NULL || pGray_right == NULL) {
+    return;
   }
-  for (int i = 0; i < img.rows; i++) {
-    uchar *data = img.ptr(i);
-    for (int j = 0; j < img.cols; j++) {
-      double temperature = (buffer[i * 512 + j] - 10000) / x;
-      // std::cout<<"tep: " << temperature << std::endl;
-      double value = (temperature - min_t) / (max_t - min_t);
-      data[j] = static_cast<uchar>(std::max(std::min(1.0, value), 0.0) * 255);
+
+  for (int i = 0; i < img_left.rows; i++) {
+    uchar *data_l = img_left.ptr(i);
+    uchar *data_r = img_right.ptr(i);
+    for (int j = 0; j < img_left.cols; j++) {
+      uchar gray_l = static_cast<uchar>(pGray_left[640 * i + j]);
+      data_l[j] = gray_l;
+      uchar gray_r = static_cast<uchar>(pGray_right[640 * i + j]);
+      data_r[j] = gray_r;
     }
   }
-}
-
-void IRCapture::ExporttoROS() {
   std_msgs::Header img_msg_header;
   img_msg_header.stamp = ros::Time::now();
-  for (int i = 0; i < 2; i++) {
-    img_msg_header.frame_id = "thermal_frame_" + std::to_string(i);
-    sensor_msgs::ImagePtr img_msgs =
-        cv_bridge::CvImage(img_msg_header, "mono8", frames_[i]).toImageMsg();
-    if (i < 1) {
-      camera_image_pubs_left.publish(img_msgs);
-    } else {
-      camera_image_pubs_right.publish(img_msgs);
+  img_msg_header.frame_id = "left";
+  sensor_msgs::ImagePtr img_left_msgs =
+      cv_bridge::CvImage(img_msg_header, "mono8", img_left).toImageMsg();
+  img_msg_header.frame_id = "right";
+  sensor_msgs::ImagePtr img_right_msgs =
+      cv_bridge::CvImage(img_msg_header, "mono8", img_right).toImageMsg();
+  if (publish_raw) {
+    cv::Mat raw_left = cv::Mat::zeros(480, 640, CV_16UC1);
+    cv::Mat raw_right = cv::Mat::zeros(480, 640, CV_16UC1);
+    for (int i = 0; i < raw_left.rows; i++) {
+      ushort *data_l = raw_left.ptr<ushort>(i);
+      ushort *data_r = raw_right.ptr<ushort>(i);
+      for (int j = 0; j < raw_left.cols; j++) {
+        ushort gray_l = static_cast<ushort>(frame_left.buffer[640 * i + j]);
+        data_l[j] = gray_l;
+        ushort gray_r = static_cast<ushort>(frame_right.buffer[640 * i + j]);
+        data_r[j] = gray_r;
+      }
     }
+    sensor_msgs::ImagePtr raw_left_msgs =
+        cv_bridge::CvImage(img_msg_header, "mono16", raw_left).toImageMsg();
+    sensor_msgs::ImagePtr raw_right_msgs =
+        cv_bridge::CvImage(img_msg_header, "mono16", raw_right).toImageMsg();
+    raw_left_pub.publish(raw_left_msgs);
+    raw_right_pub.publish(raw_right_msgs);
   }
-  ROS_INFO("published");
+
+  thermal_left_pub.publish(img_left_msgs);
+  ROS_INFO("left");
+  thermal_right_pub.publish(img_right_msgs);
+  ROS_INFO("right");
 }

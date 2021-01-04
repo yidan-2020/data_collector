@@ -76,20 +76,28 @@ void FlirCapture::Run() {
 
       double t = ros::Time::now().toSec();
       CameraPtr pCam = nullptr;
-      for (unsigned int i = 0; i < camera_nums; i++) {
-        // Select camera
-        pCam = cam_list.GetByIndex(i);
-        ImagePtr image = pCam->GetNextImage(100);
-        if (image->IsIncomplete()) {
-
-          ROS_WARN_STREAM("Image incomplete with image status "
-                          << image->GetImageStatus() << "!");
-
-        } else {
-          Mat mat_img = ConverttoMat(image);
-          PublishImage(mat_img, cam_ids[i]);
-        }
+      if (camera_nums != 2) {
+        ROS_FATAL_STREAM("Error: "
+                         << "must have 2 cameras");
+        ros::shutdown();
       }
+      pCam = cam_list.GetByIndex(0);
+      ImagePtr image_0 = pCam->GetNextImage(200);
+      pCam = cam_list.GetByIndex(1);
+      ImagePtr image_1 = pCam->GetNextImage(200);
+      if (image_0->IsIncomplete()) {
+
+        ROS_WARN_STREAM("Image0 incomplete with image status "
+                        << image_0->GetImageStatus() << "!");
+      }
+      if (image_1->IsIncomplete()) {
+
+        ROS_WARN_STREAM("Image1 incomplete with image status "
+                        << image_1->GetImageStatus() << "!");
+      }
+      Mat mat_img0 = ConverttoMat(image_0);
+      Mat mat_img1 = ConverttoMat(image_1);
+      PublishBinoImage(mat_img0, mat_img1);
       ros_rate.sleep();
     }
   } catch (const std::exception &e) {
@@ -123,16 +131,32 @@ Mat FlirCapture::ConverttoMat(ImagePtr pImage) {
 void FlirCapture::PublishImage(cv::Mat &img, string id) {
   std_msgs::Header img_msg_header;
   img_msg_header.stamp = ros::Time::now();
+  img_msg_header.frame_id = "cam_" + id;
+  sensor_msgs::ImagePtr img_msgs =
+      cv_bridge::CvImage(img_msg_header, "bgr8", img).toImageMsg();
+  if (!id.compare(left_id)) {
+    camera_image_left_pub.publish(img_msgs);
+  } else if (!id.compare(right_id)) {
+    camera_image_right_pub.publish(img_msgs);
+  }
+}
 
-  for (unsigned int i = 0; i < camera_nums; i++) {
-    img_msg_header.frame_id = "cam_" + to_string(i);
-
-    sensor_msgs::ImagePtr img_msgs =
-        cv_bridge::CvImage(img_msg_header, "bgr8", img).toImageMsg();
-    if (id.compare(left_id)) {
-      camera_image_left_pub.publish(img_msgs);
-    } else if (id.compare(right_id)) {
-      camera_image_right_pub.publish(img_msgs);
+void FlirCapture::PublishBinoImage(cv::Mat &img0, cv::Mat &img1) {
+  bino_msgs::bino_camera msg;
+  std_msgs::Header msg_header;
+  msg_header.stamp = ros::Time::now();
+  sensor_msgs::ImagePtr img_left_msgs;
+  sensor_msgs::ImagePtr img_right_msgs;
+  for (int i = 0; i < 2; i++) {
+    string id = cam_ids[i];
+    if (!id.compare(left_id)) {
+      msg_header.frame_id = "cam_left";
+      img_left_msgs = cv_bridge::CvImage(msg_header, "bgr8", img0).toImageMsg();
+      camera_image_left_pub.publish(img_left_msgs);
+    } else if (!id.compare(right_id)) {
+      msg_header.frame_id = "cam_right";
+      img_right_msgs = cv_bridge::CvImage(msg_header, "bgr8", img1).toImageMsg();
+      camera_image_right_pub.publish(img_right_msgs);
     }
   }
 }

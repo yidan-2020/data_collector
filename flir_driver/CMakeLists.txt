@@ -17,6 +17,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   sensor_msgs
+  bino_msgs
 )
 find_package(OpenCV REQUIRED)
 find_package(Boost REQUIRED)
@@ -117,7 +118,7 @@ endif()
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
  INCLUDE_DIRS include
- CATKIN_DEPENDS cv_bridge image_transport nodelet roscpp rospy sensor_msgs
+ CATKIN_DEPENDS cv_bridge image_transport nodelet roscpp rospy sensor_msgs bino_msgs
  DEPENDS OpenCV
 )
 
@@ -139,7 +140,7 @@ link_directories( ${SPINNAKER_LIB_DIR} )
 set (LIBS Spinnaker ${OpenCV_LIBS} ${Boost_GENERAL})
 ## Declare a C++ library
 add_library (flir_capture SHARED src/flir_capture.cpp)
-add_dependencies(flir_capture ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_gencfg)
+add_dependencies(flir_capture ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(flir_capture ${LIBS} ${catkin_LIBRARIES})
 
 add_library(flir_nodelet src/flir_nodelet.cpp)

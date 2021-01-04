@@ -1,4 +1,5 @@
 #include <boost/thread.hpp>
+#include <boost/thread/mutex.hpp>
 #include <cv.h>
 #include <opencv2/highgui/highgui.hpp>
 #include <vector>
@@ -11,21 +12,6 @@
 
 #include "IRSDK.h"
 
-
-class IRCamera {
-  public:
-  IRCamera();
-  ~IRCamera();
-  friend int FrameCallback0(void* lData, void* lParam);
-  friend int FrameCallback1(void* lData, void* lParam);
-  int FrameRecv0(Frame *tmp, void *lParam);
-  int FrameRecv1(Frame *tmp, void *lParam);
-  CBF_IR cbf_frame0;
-  CBF_IR cbf_frame1;
-  Frame* frame0;
-  Frame* frame1;
-};
-
 class IRCapture {
 
 public:
@@ -33,25 +19,34 @@ public:
   ~IRCapture();
   void Run();
   void Monitor(const ros::TimerEvent &event);
-  
-  CBF_IR callback_frame0;
-  CBF_IR callback_frame1;
 
-private: 
-  void GetTempretureImage(unsigned short *buffer, float x, cv::Mat &img);
-  void ExporttoROS();
+  friend int FrameCallback(void *lData, void *lParam);
+  friend int FrameCallback_r(void *lData, void *lParam);
+
+private:
+  void GetTempretureImage();
 
 private:
   // cam variables
-  std::vector<cv::Mat> frames_;
-  double min_t, max_t;
+  bool created_;
+  bool publish_raw = false;
   std::string left_ip, right_ip;
   T_IPADDR ip_info[2];
-  bool created_ = false;
+  Frame frame_left;
+  Frame frame_right;
+  unsigned short pGray_left[640 * 480];
+  unsigned short pGray_right[640 * 480];
   // ros variables
   ros::NodeHandle nh_;
   ros::NodeHandle nh_pvt_;
   image_transport::ImageTransport it_;
-  image_transport::Publisher camera_image_pubs_left;
-  image_transport::Publisher camera_image_pubs_right;
+
+  image_transport::Publisher thermal_right_pub =
+      it_.advertise("thermal/right/image_raw", 10);
+  image_transport::Publisher thermal_left_pub =
+      it_.advertise("thermal/left/image_raw", 10);
+  image_transport::Publisher raw_right_pub =
+      it_.advertise("raw/right/image_raw", 10);
+  image_transport::Publisher raw_left_pub =
+      it_.advertise("raw/left/image_raw", 10);
 };

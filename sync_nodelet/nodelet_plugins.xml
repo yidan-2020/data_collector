@@ -1,0 +1,9 @@
+<library path="lib/libsync_nodelet">
+  <class name="syncfilter/SyncNodelet"
+         type="syncfilter::SyncNodelet"
+         base_class_type="nodelet::Nodelet">
+    <description>
+      camera sync nodelet
+    </description>
+  </class>
+</library>

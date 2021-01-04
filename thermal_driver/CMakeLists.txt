@@ -133,7 +133,7 @@ include_directories(
   SYSTEM ${Boost_INCLUDE_DIR}
 )
 link_directories( ${IR_LIB_DIR} )
-set (LIBS IRSDKlib_v15 ${OpenCV_LIBS} ${Boost_GENERAL})
+set (LIBS IRSDKlib rt ${OpenCV_LIBS} ${Boost_GENERAL})
 ## Declare a C++ library
 # add_library(${PROJECT_NAME}
 #   src/${PROJECT_NAME}/thermal_driver.cpp

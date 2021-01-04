@@ -8,6 +8,7 @@
 
 // ROS
 #include "sensor_msgs/Image.h"
+#include "bino_msgs/bino_camera.h"
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
 #include <ros/ros.h>
@@ -34,18 +35,18 @@ public:
 
 private:
   Mat ConverttoMat(ImagePtr pImage);
+  void PublishBinoImage(cv::Mat &img0, cv::Mat &img1);
   void PublishImage(cv::Mat &img, string id);
 
 private:
   SystemPtr system_;
   CameraList cam_list;
-  vector<string>cam_ids;
+  vector<string> cam_ids;
   string left_id, right_id;
   size_t camera_nums;
   // ros variables
   ros::NodeHandle nh_;
   ros::NodeHandle nh_pvt_;
-  // image_transport::ImageTransport it_;
   image_transport::ImageTransport it_;
   image_transport::Publisher camera_image_left_pub;
   image_transport::Publisher camera_image_right_pub;
